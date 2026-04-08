@@ -8,6 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#020617;font-family:'DM Sans',sans-serif;color:#e2e8f0}
@@ -17,7 +19,6 @@ input[type=number]{-moz-appearance:textfield}
 ::-webkit-scrollbar-track{background:#0f172a}
 ::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
 .fade-in{animation:fadeIn .4s ease-out both}
 .tab-btn{padding:10px 20px;border:1px solid #1e293b;border-radius:10px;background:#0f172a;color:#94a3b8;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s}
 .tab-btn:hover{border-color:#334155;color:#e2e8f0}
@@ -41,8 +42,17 @@ tr.total-row td{background:#064e3b44;border-top:2px solid #10b98144;font-weight:
 .card{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px;margin-bottom:16px}
 .export-btn{padding:8px 16px;border-radius:8px;border:1px solid #1e293b;background:#0f172a;color:#94a3b8;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
 .export-btn:hover{border-color:#6366f1;color:#e2e8f0}
-.progress-track{height:8px;background:#1e293b;border-radius:4px;overflow:hidden;position:relative}
+.progress-track{height:8px;background:#1e293b;border-radius:4px;overflow:hidden}
 .progress-fill{height:100%;border-radius:4px;transition:width .5s ease}
+.select-field{background:#020617;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;font-size:12px;padding:6px 8px;font-family:'DM Sans',sans-serif;cursor:pointer;outline:none}
+.select-field:focus{border-color:#6366f1}
+.upload-zone{border:2px dashed #1e293b;border-radius:16px;padding:40px 20px;text-align:center;cursor:pointer;transition:all .3s}
+.upload-zone:hover{border-color:#6366f1;background:#0f172a}
+.upload-zone.dragover{border-color:#10b981;background:#022c22}
+.import-btn{padding:10px 24px;border-radius:10px;border:none;background:#10b981;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s}
+.import-btn:hover{background:#059669}
+.import-btn:disabled{background:#334155;color:#64748b;cursor:not-allowed}
+.cat-select{background:#0f172a;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;font-size:11px;padding:4px 6px;font-family:'DM Sans',sans-serif;cursor:pointer;outline:none;max-width:130px}
 </style>
 </head>
 <body>
@@ -52,22 +62,40 @@ const {useState,useMemo,useEffect,useCallback,useRef} = React;
 
 const YEAR=2026;
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-/* Living expense categories */
 const CATEGORIES=["Groceries","Transport","Dining Out","Entertainment","Shopping","Bills/Utilities","Health","Education","Misc"];
 const CAT_COLORS=["#ec4899","#f59e0b","#ef4444","#8b5cf6","#6366f1","#14b8a6","#10b981","#3b82f6","#78716c"];
-
-/* Goal categories tracked separately */
 const GOALS=[
-  {key:"loan",label:"Loan Payment",color:"#ef4444",icon:"💳"},
-  {key:"stock",label:"Stock Investment",color:"#10b981",icon:"📈"},
-  {key:"travel",label:"Travel Fund",color:"#6366f1",icon:"✈️"},
-  {key:"pocket",label:"Pocket Money",color:"#f59e0b",icon:"💰"},
+  {key:"loan",label:"Loan Payment",color:"#ef4444",icon:"\uD83D\uDCB3"},
+  {key:"stock",label:"Stock Investment",color:"#10b981",icon:"\uD83D\uDCC8"},
+  {key:"travel",label:"Travel Fund",color:"#6366f1",icon:"\u2708"},
+  {key:"pocket",label:"Pocket Money",color:"#f59e0b",icon:"\uD83D\uDCB0"},
 ];
+
+/* Auto-categorize keywords */
+const CAT_KEYWORDS={
+  "Groceries":["woolworths","coles","aldi","costco","iga","grocery","supermarket","fresh","market","fruit","bakery","butcher"],
+  "Transport":["uber","lyft","taxi","fuel","petrol","shell","bp","caltex","ampol","parking","toll","transit","train","bus","opal","myki","rego","car wash"],
+  "Dining Out":["mcdonald","kfc","hungry jack","subway","domino","pizza","cafe","coffee","starbucks","restaurant","bar","pub","zomato","doordash","menulog","uber eat","deliveroo","noodle","sushi","thai","chinese","indian"],
+  "Entertainment":["netflix","spotify","disney","stan","youtube","cinema","movie","ticket","game","steam","playstation","xbox","apple music","hoyts","event"],
+  "Shopping":["amazon","ebay","kmart","target","big w","bunnings","ikea","jb hi","harvey","online","store","shop","fashion","clothing","shoe"],
+  "Bills/Utilities":["electricity","gas","water","internet","telstra","optus","vodafone","insurance","council","rent","mortgage","loan","strata","agl","origin","energy"],
+  "Health":["pharmacy","chemist","doctor","medical","dental","physio","gym","fitness","health","medicare","hospital","optical","bupa","medibank"],
+  "Education":["university","school","course","udemy","book","textbook","tuition","hecs","library","skillshare","coursera"],
+};
+
+function autoCategory(desc){
+  if(!desc)return 8;
+  const lower=desc.toLowerCase();
+  for(let ci=0;ci<CATEGORIES.length-1;ci++){
+    const kws=CAT_KEYWORDS[CATEGORIES[ci]]||[];
+    for(const kw of kws){if(lower.includes(kw))return ci}
+  }
+  return 8;
+}
 
 function daysInMonth(m){return new Date(YEAR,m+1,0).getDate()}
 const fmt=n=>"$"+Math.round(n).toLocaleString();
-const fmt2=n=>n===0?"—":"$"+n.toFixed(2);
+const fmt2=n=>n===0?"\u2014":"$"+n.toFixed(2);
 const pct=n=>Math.min(100,Math.max(0,n)).toFixed(1);
 
 const TAX_BRACKETS=[{min:0,max:18200,rate:0},{min:18201,max:45000,rate:.16},{min:45001,max:135000,rate:.30},{min:135001,max:190000,rate:.37},{min:190001,max:Infinity,rate:.45}];
@@ -91,7 +119,26 @@ function exportMonthCSV(month,expData,goalData){
   a.download=`expenses_${MONTHS[month]}_${YEAR}.csv`;a.click();
 }
 
-/* ═══ CELL INPUT ═══ */
+/* --- Parse date robustly --- */
+function parseDate(val){
+  if(!val)return null;
+  if(val instanceof Date && !isNaN(val))return val;
+  const s=String(val).trim();
+  /* DD/MM/YYYY or DD-MM-YYYY */
+  let m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m){const d=new Date(+m[3],+m[2]-1,+m[1]);if(!isNaN(d))return d}
+  /* YYYY-MM-DD */
+  m=s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if(m){const d=new Date(+m[1],+m[2]-1,+m[3]);if(!isNaN(d))return d}
+  /* Excel serial number */
+  const num=Number(s);
+  if(num>40000&&num<60000){const d=new Date((num-25569)*86400000);if(!isNaN(d))return d}
+  /* Fallback */
+  const d=new Date(s);
+  return isNaN(d)?null:d;
+}
+
+/* ======= CELL INPUT ======= */
 function CellInput({day,catIdx,value,onSave,className="exp-input"}){
   const [val,setVal]=useState(value);
   const ref=useRef(null);
@@ -101,11 +148,10 @@ function CellInput({day,catIdx,value,onSave,className="exp-input"}){
     onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter"){commit();ref.current?.blur()}}} />;
 }
 
-/* ═══ GOAL PROGRESS CARD ═══ */
+/* ======= GOAL PROGRESS ======= */
 function GoalProgress({icon,label,target,targetLabel,paid,color,mode}){
   const percentage=target>0?(paid/target)*100:0;
   const remaining=Math.max(0,target-paid);
-  const isAccum=mode==="accumulate";
   return(
     <div style={{background:"#0f172a",borderRadius:14,padding:"16px 18px",border:`1px solid ${color}22`,marginBottom:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -118,17 +164,305 @@ function GoalProgress({icon,label,target,targetLabel,paid,color,mode}){
         </div>
         <div style={{textAlign:"right"}}>
           <div style={{fontSize:16,fontWeight:700,fontFamily:"'Space Mono',monospace",color}}>{fmt(paid)}</div>
-          <div style={{fontSize:10,color:"#64748b"}}>{isAccum?"saved":"paid"} of {fmt(target)}</div>
+          <div style={{fontSize:10,color:"#64748b"}}>{mode==="accumulate"?"saved":"paid"} of {fmt(target)}</div>
         </div>
       </div>
       <div className="progress-track">
         <div className="progress-fill" style={{width:`${pct(percentage)}%`,background:color}}/>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
-        <span style={{fontSize:10,color:"#64748b"}}>{pct(percentage)}% {isAccum?"saved":"cleared"}</span>
+        <span style={{fontSize:10,color:"#64748b"}}>{pct(percentage)}% {mode==="accumulate"?"saved":"cleared"}</span>
         <span style={{fontSize:11,fontFamily:"'Space Mono',monospace",color:remaining>0?"#fbbf24":"#34d399",fontWeight:700}}>
-          {remaining>0?`${fmt(remaining)} remaining`:"✅ Complete!"}
+          {remaining>0?`${fmt(remaining)} remaining`:"\u2705 Complete!"}
         </span>
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================== */
+/* ================  BANK IMPORT COMPONENT  =============== */
+/* ======================================================== */
+function BankImport({onImport,onClose}){
+  const [step,setStep]=useState("upload"); /* upload -> map -> review -> done */
+  const [rawRows,setRawRows]=useState([]);
+  const [headers,setHeaders]=useState([]);
+  const [mapping,setMapping]=useState({date:"",desc:"",amount:"",debit:"",credit:""});
+  const [parsedTxns,setParsedTxns]=useState([]);
+  const [fileName,setFileName]=useState("");
+  const [dragOver,setDragOver]=useState(false);
+  const fileRef=useRef(null);
+
+  /* ── Parse uploaded file ── */
+  const handleFile=(file)=>{
+    if(!file)return;
+    setFileName(file.name);
+    const ext=file.name.split('.').pop().toLowerCase();
+
+    if(ext==="csv"||ext==="tsv"){
+      Papa.parse(file,{
+        header:true,
+        skipEmptyLines:true,
+        complete:(result)=>{
+          if(result.data.length>0){
+            setHeaders(Object.keys(result.data[0]));
+            setRawRows(result.data);
+            autoMap(Object.keys(result.data[0]));
+            setStep("map");
+          }
+        }
+      });
+    } else if(ext==="xlsx"||ext==="xls"){
+      const reader=new FileReader();
+      reader.onload=(e)=>{
+        const wb=XLSX.read(e.target.result,{type:"array",cellDates:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const data=XLSX.utils.sheet_to_json(ws,{defval:""});
+        if(data.length>0){
+          setHeaders(Object.keys(data[0]));
+          setRawRows(data);
+          autoMap(Object.keys(data[0]));
+          setStep("map");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
+  /* ── Auto-detect column mapping ── */
+  const autoMap=(cols)=>{
+    const m={date:"",desc:"",amount:"",debit:"",credit:""};
+    for(const c of cols){
+      const cl=c.toLowerCase();
+      if(!m.date&&(cl.includes("date")||cl.includes("posted")||cl.includes("transaction date")))m.date=c;
+      if(!m.desc&&(cl.includes("desc")||cl.includes("narr")||cl.includes("detail")||cl.includes("memo")||cl.includes("reference")||cl.includes("particular")))m.desc=c;
+      if(!m.amount&&(cl.includes("amount")&&!cl.includes("debit")&&!cl.includes("credit")))m.amount=c;
+      if(!m.debit&&(cl.includes("debit")||cl.includes("withdrawal")||cl.includes("dr")))m.debit=c;
+      if(!m.credit&&(cl.includes("credit")||cl.includes("deposit")||cl.includes("cr")))m.credit=c;
+    }
+    /* If no separate debit/credit, check for generic amount */
+    if(!m.amount&&!m.debit){
+      for(const c of cols){const cl=c.toLowerCase();if(cl.includes("amount")||cl.includes("value")||cl.includes("sum"))m.amount=c}
+    }
+    setMapping(m);
+  };
+
+  /* ── Process mapped data into transactions ── */
+  const processTxns=()=>{
+    const txns=[];
+    for(const row of rawRows){
+      const dateVal=parseDate(row[mapping.date]);
+      if(!dateVal)continue;
+      if(dateVal.getFullYear()!==YEAR)continue;
+
+      let amount=0;
+      if(mapping.amount){
+        amount=parseFloat(String(row[mapping.amount]).replace(/[^0-9.\-]/g,''))||0;
+      } else {
+        const deb=parseFloat(String(row[mapping.debit]||0).replace(/[^0-9.\-]/g,''))||0;
+        const cred=parseFloat(String(row[mapping.credit]||0).replace(/[^0-9.\-]/g,''))||0;
+        amount=deb>0?-deb:(cred>0?cred:0);
+      }
+
+      /* Only import debits (expenses) - negative amounts or positive debits */
+      const expense=amount<0?Math.abs(amount):(mapping.debit&&!mapping.amount?Math.abs(amount):0);
+      if(expense<=0)continue;
+
+      const desc=String(row[mapping.desc]||"");
+      const catIdx=autoCategory(desc);
+
+      txns.push({
+        date:dateVal,
+        month:dateVal.getMonth(),
+        day:dateVal.getDate()-1,
+        desc:desc.substring(0,60),
+        amount:Math.round(expense*100)/100,
+        category:catIdx,
+      });
+    }
+    txns.sort((a,b)=>a.date-b.date);
+    setParsedTxns(txns);
+    setStep("review");
+  };
+
+  /* ── Confirm import ── */
+  const confirmImport=()=>{
+    onImport(parsedTxns);
+    setStep("done");
+  };
+
+  const updateTxnCat=(idx,catIdx)=>{
+    setParsedTxns(prev=>{const n=[...prev];n[idx]={...n[idx],category:catIdx};return n});
+  };
+
+  /* ──────── RENDER ──────── */
+  return(
+    <div style={{position:"fixed",inset:0,background:"#020617ee",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:20,maxWidth:800,width:"100%",maxHeight:"90vh",overflow:"auto",padding:28}} className="fade-in">
+
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+          <div>
+            <div style={{fontSize:10,color:"#6366f1",textTransform:"uppercase",letterSpacing:2,fontWeight:700}}>Import</div>
+            <div style={{fontSize:20,fontWeight:700,fontFamily:"'Space Mono',monospace",color:"#f1f5f9"}}>Bank Statement</div>
+          </div>
+          <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:18}}>{"\u2715"}</button>
+        </div>
+
+        {/* Step indicator */}
+        <div style={{display:"flex",gap:8,marginBottom:24}}>
+          {["Upload","Map Columns","Review & Import"].map((s,i)=>{
+            const steps=["upload","map","review"];
+            const active=steps.indexOf(step)>=i;
+            return(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{width:24,height:24,borderRadius:12,background:active?"#6366f1":"#1e293b",color:active?"#fff":"#475569",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{i+1}</div>
+                <span style={{fontSize:12,color:active?"#e2e8f0":"#475569"}}>{s}</span>
+                {i<2&&<div style={{width:20,height:1,background:"#1e293b"}}/>}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── STEP 1: Upload ── */}
+        {step==="upload"&&(
+          <div>
+            <div className={`upload-zone${dragOver?" dragover":""}`}
+              onClick={()=>fileRef.current?.click()}
+              onDragOver={e=>{e.preventDefault();setDragOver(true)}}
+              onDragLeave={()=>setDragOver(false)}
+              onDrop={e=>{e.preventDefault();setDragOver(false);handleFile(e.dataTransfer.files[0])}}>
+              <div style={{fontSize:40,marginBottom:12}}>{"\uD83D\uDCC4"}</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#e2e8f0",marginBottom:6}}>Drop your bank statement here</div>
+              <div style={{fontSize:12,color:"#64748b"}}>Supports .csv, .xlsx, .xls files</div>
+              <div style={{marginTop:14,padding:"8px 20px",background:"#6366f1",borderRadius:8,display:"inline-block",color:"#fff",fontSize:12,fontWeight:700}}>Browse Files</div>
+            </div>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.tsv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+            <div style={{marginTop:16,padding:14,background:"#020617",borderRadius:12,border:"1px solid #1e293b"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",marginBottom:8}}>Supported bank formats:</div>
+              <div style={{fontSize:11,color:"#64748b",lineHeight:1.8}}>
+                Most AU banks (CBA, NAB, ANZ, Westpac, etc.) export CSV/Excel with columns like Date, Description, Amount (or Debit/Credit). The importer auto-detects columns and categories.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 2: Map Columns ── */}
+        {step==="map"&&(
+          <div>
+            <div style={{marginBottom:16,fontSize:13,color:"#94a3b8"}}>
+              Loaded <strong style={{color:"#e2e8f0"}}>{rawRows.length} rows</strong> from <strong style={{color:"#6366f1"}}>{fileName}</strong>. Map your columns:
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+              {[
+                {key:"date",label:"Date Column",required:true},
+                {key:"desc",label:"Description Column",required:true},
+                {key:"amount",label:"Amount Column (if single)",required:false},
+                {key:"debit",label:"Debit Column (if split)",required:false},
+                {key:"credit",label:"Credit Column (if split)",required:false},
+              ].map(f=>(
+                <div key={f.key}>
+                  <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>{f.label} {f.required&&<span style={{color:"#ef4444"}}>*</span>}</div>
+                  <select className="select-field" style={{width:"100%"}} value={mapping[f.key]} onChange={e=>setMapping(p=>({...p,[f.key]:e.target.value}))}>
+                    <option value="">-- Select --</option>
+                    {headers.map(h=><option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {/* Preview */}
+            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",marginBottom:8}}>Preview (first 5 rows):</div>
+            <div style={{overflow:"auto",maxHeight:200,background:"#020617",borderRadius:10,border:"1px solid #1e293b",marginBottom:20}}>
+              <table>
+                <thead><tr>{headers.map(h=><th key={h} style={{fontSize:10,whiteSpace:"nowrap",padding:"6px 8px"}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {rawRows.slice(0,5).map((r,i)=>(
+                    <tr key={i}>{headers.map(h=><td key={h} style={{fontSize:11,whiteSpace:"nowrap",padding:"4px 8px",color:"#94a3b8"}}>{String(r[h]||"").substring(0,30)}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{display:"flex",gap:10}}>
+              <button className="export-btn" onClick={()=>setStep("upload")}>Back</button>
+              <button className="import-btn" disabled={!mapping.date||!mapping.desc||(!mapping.amount&&!mapping.debit)} onClick={processTxns}>
+                Process {rawRows.length} Transactions
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 3: Review ── */}
+        {step==="review"&&(
+          <div>
+            <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:13,color:"#94a3b8"}}>
+                <strong style={{color:"#10b981"}}>{parsedTxns.length}</strong> expenses found in {YEAR}. Review categories before importing:
+              </div>
+              <div style={{fontSize:13,fontFamily:"'Space Mono',monospace",color:"#f59e0b",fontWeight:700}}>
+                Total: {fmt(parsedTxns.reduce((s,t)=>s+t.amount,0))}
+              </div>
+            </div>
+
+            <div style={{overflow:"auto",maxHeight:"45vh",background:"#020617",borderRadius:12,border:"1px solid #1e293b",marginBottom:20}}>
+              <table>
+                <thead><tr>
+                  <th style={{textAlign:"left",minWidth:80}}>Date</th>
+                  <th style={{textAlign:"left",minWidth:200}}>Description</th>
+                  <th style={{minWidth:80}}>Amount</th>
+                  <th style={{minWidth:140}}>Category</th>
+                </tr></thead>
+                <tbody>
+                  {parsedTxns.map((t,i)=>(
+                    <tr key={i}>
+                      <td style={{fontFamily:"'Space Mono',monospace",fontSize:11,color:"#64748b"}}>{t.date.getDate()} {MONTHS[t.month]}</td>
+                      <td style={{textAlign:"left",fontSize:11,color:"#e2e8f0",maxWidth:250,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc}</td>
+                      <td style={{fontFamily:"'Space Mono',monospace",fontSize:12,color:"#ef4444"}}>${t.amount.toFixed(2)}</td>
+                      <td>
+                        <select className="cat-select" value={t.category} onChange={e=>updateTxnCat(i,parseInt(e.target.value))}>
+                          {CATEGORIES.map((c,ci)=><option key={ci} value={ci}>{c}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Category summary */}
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:20}}>
+              {CATEGORIES.map((c,ci)=>{
+                const total=parsedTxns.filter(t=>t.category===ci).reduce((s,t)=>s+t.amount,0);
+                return total>0?(
+                  <div key={ci} style={{background:"#0f172a",borderRadius:8,padding:"6px 12px",border:`1px solid ${CAT_COLORS[ci]}33`,display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:CAT_COLORS[ci]}}/>
+                    <span style={{fontSize:11,color:"#94a3b8"}}>{c}</span>
+                    <span style={{fontSize:11,fontFamily:"'Space Mono',monospace",color:"#e2e8f0",fontWeight:700}}>{fmt(total)}</span>
+                  </div>
+                ):null;
+              })}
+            </div>
+
+            <div style={{display:"flex",gap:10}}>
+              <button className="export-btn" onClick={()=>setStep("map")}>Back</button>
+              <button className="import-btn" onClick={confirmImport}>
+                Import {parsedTxns.length} Transactions to Tracker
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── DONE ── */}
+        {step==="done"&&(
+          <div style={{textAlign:"center",padding:"30px 0"}}>
+            <div style={{fontSize:50,marginBottom:16}}>{"\u2705"}</div>
+            <div style={{fontSize:20,fontWeight:700,color:"#34d399",marginBottom:8}}>Import Complete!</div>
+            <div style={{fontSize:13,color:"#94a3b8",marginBottom:24}}>{parsedTxns.length} transactions added to your Daily Tracker</div>
+            <button className="import-btn" onClick={onClose}>Close</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -153,7 +487,6 @@ function Calculator({expenses,goalExpenses}){
     return{ded,net,mo,loanEMI,trvl};
   },[salary,superRate,loanTotal,loanMonths,stockMonthly,pocketMonthly,travelYearly]);
 
-  /* Compute totals from goal tracker */
   const goalTotals=useMemo(()=>{
     const totals={loan:0,stock:0,travel:0,pocket:0};
     MONTHS.forEach((_,mi)=>{
@@ -166,7 +499,6 @@ function Calculator({expenses,goalExpenses}){
     return totals;
   },[goalExpenses]);
 
-  /* Monthly avg living expenses */
   const avgSpend=useMemo(()=>{
     const tots=MONTHS.map((_,mi)=>{const md=expenses[mi]||{};let t=0;for(let d=0;d<daysInMonth(mi);d++){const r=md[d];if(r)t+=r.reduce((a,b)=>a+b,0)}return t});
     const active=tots.filter(v=>v>0);
@@ -209,15 +541,14 @@ function Calculator({expenses,goalExpenses}){
         <SC label="Monthly In-Hand" value={fmt(calc.mo)} sub={`${fmt(calc.net)} / year`} accent="#10b981"/>
       </div>
 
-      {/* ── GOAL PROGRESS SECTION ── */}
       <div style={{marginBottom:20}}>
         <div style={{fontSize:12,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:2,marginBottom:14}}>
-          🎯 Goal Progress (from Daily Tracker)
+          {"\uD83C\uDFAF"} Goal Progress (from Daily Tracker)
         </div>
-        <GoalProgress icon="💳" label="Personal Loan Payoff" target={loanTotal} targetLabel={`Target: clear ${fmt(loanTotal)} in ${loanMonths} months`} paid={goalTotals.loan} color="#ef4444" mode="payoff"/>
-        <GoalProgress icon="📈" label="Stock Investment" target={stockTarget} targetLabel={`Target: ${fmt(stockTarget)} / year (${fmt(stockMonthly)}/mo)`} paid={goalTotals.stock} color="#10b981" mode="accumulate"/>
-        <GoalProgress icon="✈️" label="Travel Fund" target={travelYearly} targetLabel={`Target: ${fmt(travelYearly)} for family trip`} paid={goalTotals.travel} color="#6366f1" mode="accumulate"/>
-        <GoalProgress icon="💰" label="Pocket Money Used" target={pocketMonthly*12} targetLabel={`Budget: ${fmt(pocketMonthly)}/mo × 12 = ${fmt(pocketMonthly*12)}/yr`} paid={goalTotals.pocket} color="#f59e0b" mode="accumulate"/>
+        <GoalProgress icon={"\uD83D\uDCB3"} label="Personal Loan Payoff" target={loanTotal} targetLabel={`Clear ${fmt(loanTotal)} in ${loanMonths} months`} paid={goalTotals.loan} color="#ef4444" mode="payoff"/>
+        <GoalProgress icon={"\uD83D\uDCC8"} label="Stock Investment" target={stockTarget} targetLabel={`Target: ${fmt(stockTarget)} / year (${fmt(stockMonthly)}/mo)`} paid={goalTotals.stock} color="#10b981" mode="accumulate"/>
+        <GoalProgress icon={"\u2708"} label="Travel Fund" target={travelYearly} targetLabel={`${fmt(travelYearly)} for family trip`} paid={goalTotals.travel} color="#6366f1" mode="accumulate"/>
+        <GoalProgress icon={"\uD83D\uDCB0"} label="Pocket Money Used" target={pocketMonthly*12} targetLabel={`${fmt(pocketMonthly)}/mo x 12 = ${fmt(pocketMonthly*12)}/yr`} paid={goalTotals.pocket} color="#f59e0b" mode="accumulate"/>
       </div>
 
       <div className="card">
@@ -235,7 +566,6 @@ function Calculator({expenses,goalExpenses}){
         <IR label="Travel Fund / year" value={travelYearly} onChange={setTravelYearly} step={500}/>
       </div>
 
-      {/* Allocation bar */}
       <div className="card">
         <div style={{fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,marginBottom:14,color:"#e2e8f0"}}>Monthly Budget Allocation</div>
         <div style={{height:28,borderRadius:8,overflow:"hidden",display:"flex",background:"#1e293b",marginBottom:14}}>
@@ -267,48 +597,64 @@ function Calculator({expenses,goalExpenses}){
 function DailyTracker({expenses,setExpenses,goalExpenses,setGoalExpenses}){
   const [month,setMonth]=useState(new Date().getMonth());
   const [tab,setTab]=useState("expenses");
+  const [showImport,setShowImport]=useState(false);
   const days=daysInMonth(month);
 
-  /* Expense data */
   const md=expenses[month]||{};
   const updateExpCell=useCallback((d,ci,v)=>{
     setExpenses(prev=>{const n=JSON.parse(JSON.stringify(prev));if(!n[month])n[month]={};if(!n[month][d])n[month][d]=CATEGORIES.map(()=>0);n[month][d][ci]=v;return n});
   },[month,setExpenses]);
 
-  /* Goal data */
   const gd=goalExpenses[month]||{};
   const updateGoalCell=useCallback((d,gi,v)=>{
     setGoalExpenses(prev=>{const n=JSON.parse(JSON.stringify(prev));if(!n[month])n[month]={};if(!n[month][d])n[month][d]=GOALS.map(()=>0);n[month][d][gi]=v;return n});
   },[month,setGoalExpenses]);
 
-  /* Expense totals */
+  /* Handle bank import */
+  const handleImport=(txns)=>{
+    setExpenses(prev=>{
+      const n=JSON.parse(JSON.stringify(prev));
+      for(const t of txns){
+        if(!n[t.month])n[t.month]={};
+        if(!n[t.month][t.day])n[t.month][t.day]=CATEGORIES.map(()=>0);
+        n[t.month][t.day][t.category]+=t.amount;
+        /* Round to 2 decimals */
+        n[t.month][t.day][t.category]=Math.round(n[t.month][t.day][t.category]*100)/100;
+      }
+      return n;
+    });
+  };
+
   const catTotals=CATEGORIES.map(()=>0);const dayTotals=[];let grand=0;
   for(let d=0;d<days;d++){const r=md[d]||CATEGORIES.map(()=>0);let dt=0;r.forEach((v,ci)=>{dt+=v;catTotals[ci]+=v});dayTotals.push(dt);grand+=dt}
 
-  /* Goal totals */
   const goalCatTotals=GOALS.map(()=>0);const goalDayTotals=[];let goalGrand=0;
   for(let d=0;d<days;d++){const r=gd[d]||GOALS.map(()=>0);let dt=0;r.forEach((v,gi)=>{dt+=v;goalCatTotals[gi]+=v});goalDayTotals.push(dt);goalGrand+=dt}
 
   return(
     <div className="fade-in">
-      {/* Month pills */}
+      {showImport&&<BankImport onImport={handleImport} onClose={()=>setShowImport(false)}/>}
+
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
         {MONTHS.map((m,i)=><button key={i} className={`month-pill${i===month?" active":""}`} onClick={()=>setMonth(i)}>{m}</button>)}
       </div>
 
-      {/* Sub-tabs: Expenses vs Goals */}
-      <div style={{display:"flex",gap:8,marginBottom:20}}>
+      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap",alignItems:"center"}}>
         <button className={`tab-btn${tab==="expenses"?" active":""}`} onClick={()=>setTab("expenses")} style={{fontSize:12,padding:"8px 16px"}}>
-          🛒 Living Expenses
+          {"\uD83D\uDED2"} Living Expenses
         </button>
         <button className={`tab-btn${tab==="goals"?" active":""}`} onClick={()=>setTab("goals")} style={{fontSize:12,padding:"8px 16px",background:tab==="goals"?"#10b981":"",borderColor:tab==="goals"?"#10b981":""}}>
-          🎯 Goal Payments
+          {"\uD83C\uDFAF"} Goal Payments
+        </button>
+        <div style={{flex:1}}/>
+        <button className="export-btn" onClick={()=>setShowImport(true)} style={{borderColor:"#6366f133",background:"linear-gradient(135deg,#1e1b4b,#0f172a)"}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          <span style={{color:"#818cf8",fontWeight:700}}>Import Bank Statement</span>
         </button>
       </div>
 
       {tab==="expenses"?(
         <>
-          {/* Summary cards */}
           <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
             <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",border:"1px solid #1e293b",flex:1,minWidth:120}}>
               <div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:1}}>Month Total</div>
@@ -320,7 +666,7 @@ function DailyTracker({expenses,setExpenses,goalExpenses,setGoalExpenses}){
             </div>
             <div style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",border:"1px solid #1e293b",flex:1,minWidth:120}}>
               <div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:1}}>Top Category</div>
-              <div style={{fontSize:14,fontWeight:700,color:"#ec4899",marginTop:6}}>{catTotals.every(v=>v===0)?"—":CATEGORIES[catTotals.indexOf(Math.max(...catTotals))]}</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#ec4899",marginTop:6}}>{catTotals.every(v=>v===0)?"\u2014":CATEGORIES[catTotals.indexOf(Math.max(...catTotals))]}</div>
               {!catTotals.every(v=>v===0)&&<div style={{fontSize:12,fontFamily:"'Space Mono',monospace",color:"#e2e8f0"}}>{fmt(Math.max(...catTotals))}</div>}
             </div>
           </div>
@@ -358,7 +704,6 @@ function DailyTracker({expenses,setExpenses,goalExpenses,setGoalExpenses}){
         </>
       ):(
         <>
-          {/* Goal payments tab */}
           <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
             {GOALS.map((g,gi)=>(
               <div key={gi} style={{background:"#0f172a",borderRadius:12,padding:"14px 18px",border:`1px solid ${g.color}33`,flex:1,minWidth:130}}>
@@ -385,7 +730,7 @@ function DailyTracker({expenses,setExpenses,goalExpenses,setGoalExpenses}){
           </div>
 
           <div style={{marginTop:16,padding:14,background:"#022c22",borderRadius:12,border:"1px solid #10b98133",fontSize:12,color:"#6ee7b7"}}>
-            💡 Log your loan payments, stock purchases, travel savings & pocket money here. Totals automatically update the Goal Progress on the Calculator page.
+            {"\uD83D\uDCA1"} Log your loan payments, stock purchases, travel savings & pocket money here. Totals auto-update the Calculator goals.
           </div>
         </>
       )}
@@ -400,10 +745,10 @@ function AnnualSummary({expenses,goalExpenses}){
     const goalGrid=GOALS.map(()=>MONTHS.map(()=>0));
     const mt=MONTHS.map(()=>0);const gmt=MONTHS.map(()=>0);
     MONTHS.forEach((_,mi)=>{
-      const md=expenses[mi]||{};const gd=goalExpenses[mi]||{};
+      const md=expenses[mi]||{};const gdd=goalExpenses[mi]||{};
       for(let d=0;d<daysInMonth(mi);d++){
         const r=md[d]||CATEGORIES.map(()=>0);r.forEach((v,ci)=>{grid[ci][mi]+=v;mt[mi]+=v});
-        const gr=gd[d]||GOALS.map(()=>0);gr.forEach((v,gi)=>{goalGrid[gi][mi]+=v;gmt[mi]+=v});
+        const gr=gdd[d]||GOALS.map(()=>0);gr.forEach((v,gi)=>{goalGrid[gi][mi]+=v;gmt[mi]+=v});
       }
     });
     return{grid,goalGrid,mt,gmt,total:mt.reduce((a,b)=>a+b,0),goalTotal:gmt.reduce((a,b)=>a+b,0)};
@@ -426,7 +771,6 @@ function AnnualSummary({expenses,goalExpenses}){
         </div>
       </div>
 
-      {/* Monthly trend */}
       {(data.total+data.goalTotal)>0&&(
         <div className="card">
           <div style={{fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,marginBottom:14,color:"#94a3b8"}}>Monthly Trend</div>
@@ -452,7 +796,6 @@ function AnnualSummary({expenses,goalExpenses}){
         </div>
       )}
 
-      {/* Expenses grid */}
       <div style={{fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,marginBottom:10,color:"#94a3b8"}}>Living Expenses</div>
       <div style={{background:"#0f172a",borderRadius:16,border:"1px solid #1e293b",overflow:"auto",marginBottom:20}}>
         <table>
@@ -460,15 +803,14 @@ function AnnualSummary({expenses,goalExpenses}){
           <tbody>
             {CATEGORIES.map((cat,ci)=>{const ann=data.grid[ci].reduce((a,b)=>a+b,0);return(
               <tr key={ci}><td style={{color:CAT_COLORS[ci],fontWeight:600,fontSize:12}}>{cat}</td>
-              {data.grid[ci].map((v,mi)=><td key={mi} style={{fontFamily:"'Space Mono',monospace",fontSize:11,color:v>0?"#e2e8f0":"#1e293b"}}>{v>0?fmt(v):"—"}</td>)}
-              <td style={{fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:ann>0?"#e2e8f0":"#1e293b"}}>{ann>0?fmt(ann):"—"}</td></tr>
+              {data.grid[ci].map((v,mi)=><td key={mi} style={{fontFamily:"'Space Mono',monospace",fontSize:11,color:v>0?"#e2e8f0":"#1e293b"}}>{v>0?fmt(v):"\u2014"}</td>)}
+              <td style={{fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:ann>0?"#e2e8f0":"#1e293b"}}>{ann>0?fmt(ann):"\u2014"}</td></tr>
             )})}
             <tr className="total-row"><td>TOTAL</td>{data.mt.map((v,i)=><td key={i}>{fmt(v)}</td>)}<td>{fmt(data.total)}</td></tr>
           </tbody>
         </table>
       </div>
 
-      {/* Goals grid */}
       <div style={{fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,marginBottom:10,color:"#10b981"}}>Goal Payments</div>
       <div style={{background:"#0f172a",borderRadius:16,border:"1px solid #1e293b",overflow:"auto"}}>
         <table>
@@ -476,8 +818,8 @@ function AnnualSummary({expenses,goalExpenses}){
           <tbody>
             {GOALS.map((g,gi)=>{const ann=data.goalGrid[gi].reduce((a,b)=>a+b,0);return(
               <tr key={gi}><td style={{color:g.color,fontWeight:600,fontSize:12}}>{g.icon} {g.label}</td>
-              {data.goalGrid[gi].map((v,mi)=><td key={mi} style={{fontFamily:"'Space Mono',monospace",fontSize:11,color:v>0?"#e2e8f0":"#1e293b"}}>{v>0?fmt(v):"—"}</td>)}
-              <td style={{fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:ann>0?"#e2e8f0":"#1e293b"}}>{ann>0?fmt(ann):"—"}</td></tr>
+              {data.goalGrid[gi].map((v,mi)=><td key={mi} style={{fontFamily:"'Space Mono',monospace",fontSize:11,color:v>0?"#e2e8f0":"#1e293b"}}>{v>0?fmt(v):"\u2014"}</td>)}
+              <td style={{fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:ann>0?"#e2e8f0":"#1e293b"}}>{ann>0?fmt(ann):"\u2014"}</td></tr>
             )})}
             <tr className="total-row"><td>TOTAL</td>{data.gmt.map((v,i)=><td key={i}>{fmt(v)}</td>)}<td>{fmt(data.goalTotal)}</td></tr>
           </tbody>
@@ -505,14 +847,14 @@ function App(){
         </h1>
       </div>
       <div style={{display:"flex",gap:8,marginBottom:28,flexWrap:"wrap"}}>
-        {[["calculator","📊 Calculator"],["tracker","📝 Daily Tracker"],["summary","📅 Annual Summary"]].map(([k,l])=>(
+        {[["calculator","\uD83D\uDCCA Calculator"],["tracker","\uD83D\uDCDD Daily Tracker"],["summary","\uD83D\uDCC5 Annual Summary"]].map(([k,l])=>(
           <button key={k} className={`tab-btn${page===k?" active":""}`} onClick={()=>setPage(k)}>{l}</button>
         ))}
       </div>
       {page==="calculator"&&<Calculator expenses={expenses} goalExpenses={goalExpenses}/>}
       {page==="tracker"&&<DailyTracker expenses={expenses} setExpenses={setExpenses} goalExpenses={goalExpenses} setGoalExpenses={setGoalExpenses}/>}
       {page==="summary"&&<AnnualSummary expenses={expenses} goalExpenses={goalExpenses}/>}
-      <div style={{textAlign:"center",marginTop:40,fontSize:10,color:"#334155"}}>Data saved locally in your browser • {YEAR}</div>
+      <div style={{textAlign:"center",marginTop:40,fontSize:10,color:"#334155"}}>Data saved locally in your browser {"\u2022"} {YEAR}</div>
     </div>
   );
 }
